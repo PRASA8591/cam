@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Camera Connect — Firebase Signaling (HTML/CSS/JS)</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;margin:14px;background:#f4f7fb;color:#222}
+    h1{color:#1565c0;text-align:center}
+    .wrap{max-width:900px;margin:0 auto}
+    .card{background:#fff;border-radius:8px;padding:12px;margin-bottom:14px;border:1px solid #e0e4ea}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    label{display:inline-flex;align-items:center;gap:6px}
+    button{background:#1e88e5;color:white;border:none;padding:10px 14px;border-radius:6px;cursor:pointer}
+    button.secondary{background:#37474f}
+    input[type=text]{padding:8px;border-radius:6px;border:1px solid #cfd8dc}
+    video{width:100%;max-width:640px;background:#000;border-radius:6px;display:block;margin:8px 0}
+    .code{font-family:monospace;background:#eef5ff;padding:8px;border-radius:6px;display:inline-block}
+    .small{font-size:13px;color:#555}
+    .controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+    .center{text-align:center}
+    .hidden{display:none}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Camera Connect — Firebase Signaling</h1>
+
+    <div class="card">
+      <div class="row">
+        <button id="modeSend">📤 Send (Share from this device)</button>
+        <button id="modeRecv">📥 Receive (View a shared device)</button>
+        <div class="small" style="margin-left:auto">Firestore used for signaling</div>
+      </div>
+    </div>
+
+    <!-- Sender card -->
+    <div id="senderCard" class="card hidden">
+      <h3>Sender (Share) — generate code and start sharing</h3>
+
+      <div class="row">
+        <label><input type="checkbox" id="shareVideo" checked> Camera</label>
+        <label><input type="checkbox" id="shareAudio" checked> Microphone</label>
+        <button id="btnStartShare">Start Share</button>
+        <button id="btnStopShare" class="secondary hidden">Stop</button>
+      </div>
+
+      <div style="margin-top:10px">
+        <div class="small">Session code (give this to the receiver):</div>
+        <div id="sessionCode" class="code" style="margin-top:6px">—</div>
+      </div>
+
+      <div style="margin-top:12px">
+        <div class="small">Local preview:</div>
+        <video id="localVideo" autoplay playsinline muted></video>
+      </div>
+
+      <div id="senderStatus" class="small" style="margin-top:8px;color:#2e7d32"></div>
+    </div>
+
+    <!-- Receiver card -->
+    <div id="recvCard" class="card hidden">
+      <h3>Receiver (View)</h3>
+      <div class="row">
+        <input id="codeInput" placeholder="Enter session code (e.g. AB12CD)" type="text" />
+        <button id="btnJoin">Connect</button>
+        <button id="btnDisconnect" class="secondary hidden">Disconnect</button>
+      </div>
+
+      <div style="margin-top:12px">
+        <div class="small">Remote stream:</div>
+        <video id="remoteVideo" autoplay playsinline></video>
+      </div>
+
+      <div id="recvStatus" class="small" style="margin-top:8px;color:#2e7d32"></div>
+    </div>
+
+    <div class="card small">
+      <strong>Notes:</strong>
+      <ul>
+        <li>Host this file over HTTPS or open as <code>http://localhost</code> when testing.</li>
+        <li>For public Internet reliability, consider setting a TURN server in the code (see commented section).</li>
+      </ul>
+    </div>
+
+  </div>
+
+  <!-- Firebase SDKs (compat) -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+
+  <script>
+  // =========== Paste your Firebase config here ===========
+  const firebaseConfig = {
+    apiKey: "AIzaSyA6C0obBf1DhLGqeslZervMQhYTAnhJNz0",
+    authDomain: "camera-a8909.firebaseapp.com",
+    projectId: "camera-a8909",
+    storageBucket: "camera-a8909.firebasestorage.app",
+    messagingSenderId: "684343813628",
+    appId: "1:684343813628:web:218292a6173fbe9c1dfe79",
+    measurementId: "G-LDDDKW79JY"
+  };
+  // ======================================================
+
+  // Initialize Firebase
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.firestore();
+
+  // UI refs
+  const modeSend = document.getElementById('modeSend');
+  const modeRecv = document.getElementById('modeRecv');
+  const senderCard = document.getElementById('senderCard');
+  const recvCard = document.getElementById('recvCard');
+
+  const shareVideoChk = document.getElementById('shareVideo');
+  const shareAudioChk = document.getElementById('shareAudio');
+  const btnStartShare = document.getElementById('btnStartShare');
+  const btnStopShare = document.getElementById('btnStopShare');
+  const sessionCodeEl = document.getElementById('sessionCode');
+  const localVideo = document.getElementById('localVideo');
+  const senderStatus = document.getElementById('senderStatus');
+
+  const codeInput = document.getElementById('codeInput');
+  const btnJoin = document.getElementById('btnJoin');
+  const btnDisconnect = document.getElementById('btnDisconnect');
+  const remoteVideo = document.getElementById('remoteVideo');
+  const recvStatus = document.getElementById('recvStatus');
+
+  // Global state
+  let localStream = null;
+  let pc = null;
+  let sessionDocRef = null;
+  let senderCandidatesUnsub = null;
+  let receiverCandidatesUnsub = null;
+
+  // ICE / STUN config
+  const configuration = {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' }
+      // For better connectivity across NATs, add TURN server here:
+      // { urls: 'turn:your-turn-server:3478', username:'user', credential:'pass' }
+    ]
+  };
+
+  // UI mode handlers
+  modeSend.onclick = () => {
+    senderCard.classList.remove('hidden');
+    recvCard.classList.add('hidden');
+  };
+  modeRecv.onclick = () => {
+    recvCard.classList.remove('hidden');
+    senderCard.classList.add('hidden');
+  };
+
+  // utility: generate short code
+  function makeCode(len=6){
+    const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    let s = '';
+    for(let i=0;i<len;i++) s += chars[Math.floor(Math.random()*chars.length)];
+    return s;
+  }
+
+  // ---------- SENDER (create session) ----------
+  btnStartShare.onclick = async () => {
+    btnStartShare.disabled = true;
+    senderStatus.textContent = 'Starting... allow camera/mic when asked.';
+    const useVideo = shareVideoChk.checked;
+    const useAudio = shareAudioChk.checked;
+
+    try {
+      localStream = await navigator.mediaDevices.getUserMedia({ video: useVideo, audio: useAudio });
+      localVideo.srcObject = localStream;
+    } catch (err) {
+      alert('Could not access camera/microphone: ' + err);
+      btnStartShare.disabled = false;
+      senderStatus.textContent = '';
+      return;
+    }
+
+    pc = new RTCPeerConnection(configuration);
+
+    // Add local tracks
+    localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+    // Create session doc
+    const code = makeCode(6);
+    sessionCodeEl.textContent = code;
+    const sessionsCol = db.collection('sessions');
+    sessionDocRef = sessionsCol.doc(code);
+
+    // Subcollections for ICE candidates
+    const senderCandidatesRef = sessionDocRef.collection('senderCandidates');
+    const receiverCandidatesRef = sessionDocRef.collection('receiverCandidates');
+
+    // When local ICE candidate found, push to Firestore senderCandidates
+    pc.onicecandidate = event => {
+      if (event.candidate) {
+        senderCandidatesRef.add(event.candidate.toJSON()).catch(console.error);
+      }
+    };
+
+    // listen for remote tracks (not normally used on sender side, but handle if needed)
+    pc.ontrack = e => {
+      // no-op for sender
+      console.log('sender got track', e.streams);
+    };
+
+    // create offer & save to Firestore document
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    const offerData = {
+      type: offer.type,
+      sdp: offer.sdp,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+
+    await sessionDocRef.set({ offer: offerData, createdAt: firebase.firestore.FieldValue.serverTimestamp(), status:'waiting' });
+
+    // subscribe to answer field
+    const unsubOffer = sessionDocRef.onSnapshot(async snap => {
+      const data = snap.data();
+      if (!data) return;
+      if (data.answer && data.answer.sdp && pc && !pc.currentRemoteDescription) {
+        const answerDesc = new RTCSessionDescription({ type: data.answer.type, sdp: data.answer.sdp });
+        await pc.setRemoteDescription(answerDesc);
+        senderStatus.textContent = 'Receiver answered — connected (once ICE done).';
+      }
+    });
+
+    // listen for added receiverCandidates and add to pc
+    receiverCandidatesUnsub = receiverCandidatesRef.onSnapshot(snapshot => {
+      snapshot.docChanges().forEach(change => {
+        if (change.type === 'added') {
+          const cand = change.doc.data();
+          pc.addIceCandidate(new RTCIceCandidate(cand)).catch(e => console.warn('addIceCandidate failed', e));
+        }
+      });
+    });
+
+    // mark UI
+    senderStatus.textContent = 'Session created. Share the code with receiver: ' + code;
+    btnStopShare.classList.remove('hidden');
+    // store cleanup handle on doc for later removal
+    sessionDocRef._localUnsub = unsubOffer;
+  };
+
+  btnStopShare.onclick = async () => {
+    await endSession();
+  };
+
+  // ---------- RECEIVER (join) ----------
+  btnJoin.onclick = async () => {
+    const code = (codeInput.value || '').trim().toUpperCase();
+    if (!code) return alert('Enter session code');
+    recvStatus.textContent = 'Joining session ' + code + '...';
+    btnJoin.disabled = true;
+
+    try {
+      sessionDocRef = db.collection('sessions').doc(code);
+      const snap = await sessionDocRef.get();
+      if (!snap.exists) {
+        alert('Session not found: ' + code);
+        recvStatus.textContent = '';
+        btnJoin.disabled = false;
+        return;
+      }
+      const data = snap.data();
+      if (!data.offer) {
+        alert('Session has no offer.');
+        recvStatus.textContent = '';
+        btnJoin.disabled = false;
+        return;
+      }
+
+      pc = new RTCPeerConnection(configuration);
+
+      // When remote track arrives, show it
+      pc.ontrack = event => {
+        remoteVideo.srcObject = event.streams[0];
+      };
+
+      // create receiverCandidates subcollection
+      const receiverCandidatesRef = sessionDocRef.collection('receiverCandidates');
+      const senderCandidatesRef = sessionDocRef.collection('senderCandidates');
+
+      // add local ICE to receiverCandidates
+      pc.onicecandidate = event => {
+        if (event.candidate) {
+          receiverCandidatesRef.add(event.candidate.toJSON()).catch(console.error);
+        }
+      };
+
+      // set remote description from offer
+      const offer = data.offer;
+      const offerDesc = new RTCSessionDescription({ type: offer.type, sdp: offer.sdp });
+      await pc.setRemoteDescription(offerDesc);
+
+      // create answer
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+
+      // save answer to session doc
+      const answerData = { type: answer.type, sdp: answer.sdp, createdAt: firebase.firestore.FieldValue.serverTimestamp() };
+      await sessionDocRef.update({ answer: answerData, status:'answered' });
+
+      // subscribe to senderCandidates and add to pc
+      senderCandidatesUnsub = senderCandidatesRef.onSnapshot(snapshot => {
+        snapshot.docChanges().forEach(async change => {
+          if (change.type === 'added') {
+            const cand = change.doc.data();
+            try {
+              await pc.addIceCandidate(new RTCIceCandidate(cand));
+            } catch (e) {
+              console.warn('Error adding sender candidate', e);
+            }
+          }
+        });
+      });
+
+      recvStatus.textContent = 'Answer sent. Waiting for media...';
+      btnDisconnect.classList.remove('hidden');
+
+    } catch (err) {
+      console.error(err);
+      alert('Error joining session: ' + err);
+      recvStatus.textContent = '';
+      btnJoin.disabled = false;
+    }
+  };
+
+  // disconnect / cleanup
+  btnDisconnect.onclick = async () => {
+    await endSession(true);
+  };
+
+  // End session & cleanup function. If `removeDoc` true, delete Firestore session doc (receiver typically calls false; sender may delete)
+  async function endSession(removeDoc=false){
+    try {
+      if (senderCandidatesUnsub) { senderCandidatesUnsub(); senderCandidatesUnsub = null; }
+      if (receiverCandidatesUnsub) { receiverCandidatesUnsub(); receiverCandidatesUnsub = null; }
+      if (sessionDocRef && sessionDocRef._localUnsub) { sessionDocRef._localUnsub(); delete sessionDocRef._localUnsub; }
+    } catch(e){ console.warn(e); }
+
+    if (pc) {
+      try { pc.getSenders().forEach(s=>s.track && s.track.stop()); } catch(e){}
+      try { pc.close(); } catch(e){}
+      pc = null;
+    }
+
+    if (localStream) {
+      try { localStream.getTracks().forEach(t=>t.stop()); } catch(e){}
+      localStream = null;
+      localVideo.srcObject = null;
+    }
+
+    if (remoteVideo) remoteVideo.srcObject = null;
+
+    if (sessionDocRef && removeDoc) {
+      // delete subcollections first (Firestore doesn't delete subcollections with doc delete),
+      // but for simplicity here we'll just delete the doc (subcollections remain).
+      try { await sessionDocRef.delete(); } catch(e){ console.warn('delete doc failed', e); }
+    }
+
+    // reset UI
+    sessionCodeEl.textContent = '—';
+    senderStatus.textContent = '';
+    recvStatus.textContent = '';
+    btnStartShare.disabled = false;
+    btnJoin.disabled = false;
+    btnStopShare.classList.add('hidden');
+    btnDisconnect.classList.add('hidden');
+    sessionDocRef = null;
+  }
+
+  // optional: cleanup on page unload
+  window.addEventListener('beforeunload', async () => {
+    await endSession(false);
+  });
+
+  </script>
+</body>
+</html>
