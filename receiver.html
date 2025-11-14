@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Camera Connect — Receiver</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="wrap">
+    <h1>Receiver — View Camera</h1>
+
+    <div class="card">
+      <div class="row">
+        <input id="codeInput" placeholder="Enter session code (e.g. AB12CD)" type="text" />
+        <button id="btnJoin">Connect</button>
+        <button id="btnLeave" class="secondary hidden">Disconnect</button>
+        <a class="bigbtn" href="index.html">⬅ Back</a>
+      </div>
+
+      <div style="margin-top:12px">
+        <div class="small">Remote stream:</div>
+        <video id="remoteVideo" autoplay playsinline></video>
+      </div>
+
+      <div id="recvStatus" class="small" style="margin-top:8px;color:#2e7d32"></div>
+    </div>
+  </div>
+
+  <!-- Firebase SDKs (compat) -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+  <script src="receiver.js"></script>
+</body>
+</html>

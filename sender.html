@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Camera Connect — Sender</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="wrap">
+    <h1>Sender — Share Camera</h1>
+
+    <div class="card">
+      <div class="row">
+        <label><input type="checkbox" id="shareVideo" checked> Camera</label>
+        <label><input type="checkbox" id="shareAudio" checked> Mic</label>
+        <button id="startShare">Start Share</button>
+        <button id="stopShare" class="secondary hidden">Stop</button>
+        <a class="bigbtn" href="index.html">⬅ Back</a>
+      </div>
+
+      <div style="margin-top:12px">
+        <div class="small">Session code — give to viewer:</div>
+        <div id="sessionCode" class="code" style="margin-top:8px">—</div>
+      </div>
+
+      <div style="margin-top:12px">
+        <div class="small">Local preview:</div>
+        <video id="localVideo" autoplay playsinline muted></video>
+      </div>
+
+      <div id="senderStatus" class="small" style="margin-top:8px;color:#2e7d32"></div>
+    </div>
+  </div>
+
+  <!-- Confirmation Modal (hidden until request) -->
+  <div id="confirmModal" class="modal-backdrop hidden" aria-hidden="true">
+    <div class="modal">
+      <h3>Connection request</h3>
+      <p><strong>A viewer is trying to connect.</strong><br/>Do you want to allow them to view your camera?</p>
+      <div class="actions">
+        <button id="rejectBtn" class="btn-reject">Reject</button>
+        <button id="allowBtn" class="btn-accept">Allow</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Firebase SDKs (compat) -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+  <script src="sender.js"></script>
+</body>
+</html>
