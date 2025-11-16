@@ -1,339 +1,162 @@
-<!doctype html>
-<html lang="en">
+<!DOCTYPE html>
+<html>
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Camera Connect — Dark (No Confirm)</title>
+<title>Camera Share (Sender + Receiver)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  :root{
-    --bg:#0f1115; --card:#111317; --muted:#9aa3b2; --accent:#00b2ff; --accent-2:#7c5cff;
-    --accent-contrast:#0b1020;
-  }
-  *{box-sizing:border-box}
-  body{margin:0;font-family:Inter,Segoe UI,Roboto,Arial,sans-serif;background:linear-gradient(180deg,#07070a0f, #0b0d10);color:#e6eef8;min-height:100vh}
-  .wrap{max-width:980px;margin:28px auto;padding:18px}
-  header{display:flex;align-items:center;gap:14px;margin-bottom:14px}
-  .logo{width:56px;height:56px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent-2));display:flex;align-items:center;justify-content:center;font-weight:700;box-shadow:0 6px 18px rgba(0,0,0,0.6)}
-  h1{font-size:20px;margin:0}
-  .subtitle{color:var(--muted);font-size:13px}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}
-  .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.12));border:1px solid rgba(255,255,255,0.03);padding:14px;border-radius:12px;min-height:180px}
-  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-  label{display:inline-flex;gap:8px;align-items:center;color:#d6e2f5}
-  input[type=text], input[type=number]{background:transparent;border:1px solid rgba(255,255,255,0.06);padding:8px;border-radius:8px;color:#e6eef8;min-width:180px}
-  button{background:linear-gradient(90deg,var(--accent),var(--accent-2));border:0;padding:10px 14px;border-radius:10px;color:var(--accent-contrast);font-weight:600;cursor:pointer;box-shadow:0 8px 28px rgba(12,16,24,0.6)}
-  button.ghost{background:transparent;border:1px solid rgba(255,255,255,0.04);color:var(--muted)}
-  .big{padding:12px 18px;font-size:15px}
-  video{width:100%;height:auto;background:#000;border-radius:10px;border:1px solid rgba(255,255,255,0.03);display:block}
-  .code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:rgba(255,255,255,0.02);padding:8px;border-radius:8px;color:#bfe8ff}
-  .muted{color:var(--muted);font-size:13px}
-  .status{font-size:13px;color:#9ff8c9;margin-top:8px}
-  .footer{margin-top:18px;color:var(--muted);font-size:13px;text-align:center}
-  @media(max-width:850px){ .grid{grid-template-columns:1fr} header{flex-direction:column;align-items:flex-start} }
+    body {
+        font-family: Arial;
+        background: #f2f2f2;
+        padding: 20px;
+    }
+    .box {
+        background: white;
+        padding: 20px;
+        border-radius: 10px;
+        max-width: 450px;
+        margin: auto;
+        margin-bottom: 30px;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    }
+    h2 { margin-top: 0; }
+    input {
+        width: 100%;
+        padding: 10px;
+        margin-bottom: 10px;
+        border-radius: 6px;
+        border: 1px solid #ccc;
+        font-size: 15px;
+    }
+    button {
+        width: 100%;
+        padding: 12px;
+        background: #006EFF;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-size: 16px;
+        cursor: pointer;
+    }
+    video {
+        width: 100%;
+        background: black;
+        border-radius: 10px;
+        margin-top: 10px;
+    }
 </style>
 </head>
 <body>
-  <div class="wrap">
-    <header>
-      <div class="logo">CC</div>
-      <div>
-        <h1>Camera Connect — Dark (Auto Accept)</h1>
-        <div class="subtitle">Instant connect: sender shares immediately, receiver connects by code — no confirmations.</div>
-      </div>
-    </header>
 
-    <div class="grid">
-      <!-- Sender card -->
-      <section class="card" id="senderCard">
-        <h3 style="margin:0 0 10px">📤 Sender — Share your camera</h3>
+<!-- SENDER -->
+<div class="box">
+    <h2>Sender — Share Camera</h2>
+    <input id="sendCode" placeholder="Enter code (ex: ABC123)">
+    <button onclick="senderConnect()">Start Sharing</button>
+    <video id="localVideo" autoplay playsinline muted></video>
+</div>
 
-        <div class="row" style="margin-bottom:12px">
-          <label><input id="svideo" type="checkbox" checked> Camera</label>
-          <label><input id="saudio" type="checkbox" checked> Mic</label>
-          <button id="startShare" class="big">Start Share</button>
-          <button id="stopShare" class="ghost" style="display:none">Stop</button>
-        </div>
+<!-- RECEIVER -->
+<div class="box">
+    <h2>Receiver — View Camera</h2>
+    <input id="recvCode" placeholder="Enter code (ex: ABC123)">
+    <button onclick="receiverConnect()">Connect</button>
+    <video id="remoteVideo" autoplay playsinline></video>
+</div>
 
-        <div style="margin-bottom:10px" class="muted">Session code (give to viewer):</div>
-        <div class="code" id="sessionCode">—</div>
+<script type="module">
 
-        <div style="margin-top:12px" class="muted">Local preview</div>
-        <video id="localVideo" autoplay playsinline muted></video>
+/* --------------------------
+      FIREBASE SETUP
+--------------------------- */
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { 
+    getFirestore, doc, setDoc, updateDoc, onSnapshot 
+} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-        <div id="sStatus" class="status" style="display:none"></div>
-      </section>
+const firebaseConfig = {
+  apiKey: "AIzaSyA6C0obBf1DhLGqeslZervMQhYTAnhJNz0",
+  authDomain: "camera-a8909.firebaseapp.com",
+  databaseURL: "https://camera-a8909-default-rtdb.firebaseio.com",
+  projectId: "camera-a8909",
+  storageBucket: "camera-a8909.firebasestorage.app",
+  messagingSenderId: "684343813628",
+  appId: "1:684343813628:web:218292a6173fbe9c1dfe79",
+  measurementId: "G-LDDDKW79JY"
+};
 
-      <!-- Receiver card -->
-      <section class="card" id="recvCard">
-        <h3 style="margin:0 0 10px">📥 Receiver — View remote camera</h3>
+const app = initializeApp(firebaseConfig);
+const db  = getFirestore(app);
 
-        <div class="row" style="margin-bottom:12px">
-          <input id="codeInput" type="text" placeholder="Enter session code (e.g. AB12CD)" />
-          <button id="connectBtn" class="big">Connect</button>
-          <button id="leaveBtn" class="ghost" style="display:none">Disconnect</button>
-        </div>
+/* --------------------------
+      SENDER (Camera)
+--------------------------- */
+const pcSend = new RTCPeerConnection();
+const localVideo = document.getElementById("localVideo");
 
-        <div class="muted">Remote stream</div>
-        <video id="remoteVideo" autoplay playsinline></video>
+// Auto-start camera
+navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+.then(stream => {
+    localVideo.srcObject = stream;
+    stream.getTracks().forEach(t => pcSend.addTrack(t, stream));
+});
 
-        <div id="rStatus" class="status" style="display:none"></div>
-      </section>
-    </div>
+/* --------------------------
+       RECEIVER
+--------------------------- */
+const pcRecv = new RTCPeerConnection();
+const remoteVideo = document.getElementById("remoteVideo");
 
-    <div class="footer">Host this page over HTTPS or open on <code>http://localhost</code> for testing. Make sure Firestore rules allow read/write while testing.</div>
-  </div>
+pcRecv.ontrack = (event) => {
+    remoteVideo.srcObject = event.streams[0];
+};
 
-  <!-- Firebase compat SDK (works with simple <script>) -->
-  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+/* --------------------------
+       SENDER CONNECT
+--------------------------- */
+async function senderConnect() {
 
-  <script>
-  // ----------------- FIREBASE CONFIG -----------------
-  const firebaseConfig = {
-    apiKey: "AIzaSyA6C0obBf1DhLGqeslZervMQhYTAnhJNz0",
-    authDomain: "camera-a8909.firebaseapp.com",
-    projectId: "camera-a8909",
-    storageBucket: "camera-a8909.firebasestorage.app",
-    messagingSenderId: "684343813628",
-    appId: "1:684343813628:web:218292a6173fbe9c1dfe79",
-    measurementId: "G-LDDDKW79JY"
-  };
-  firebase.initializeApp(firebaseConfig);
-  const db = firebase.firestore();
-  // ---------------------------------------------------
+    const code = document.getElementById("sendCode").value;
+    const callRef = doc(db, "calls", code);
 
-  // UI refs
-  const startShare = document.getElementById('startShare');
-  const stopShare = document.getElementById('stopShare');
-  const svideo = document.getElementById('svideo');
-  const saudio = document.getElementById('saudio');
-  const sessionCodeEl = document.getElementById('sessionCode');
-  const localVideo = document.getElementById('localVideo');
-  const sStatus = document.getElementById('sStatus');
+    const offer = await pcSend.createOffer();
+    await pcSend.setLocalDescription(offer);
 
-  const codeInput = document.getElementById('codeInput');
-  const connectBtn = document.getElementById('connectBtn');
-  const leaveBtn = document.getElementById('leaveBtn');
-  const remoteVideo = document.getElementById('remoteVideo');
-  const rStatus = document.getElementById('rStatus');
+    await setDoc(callRef, { offer });
 
-  // state
-  let pc = null;
-  let localStream = null;
-  let sessionRef = null;
-  let senderCandidatesUnsub = null;
-  let receiverCandidatesUnsub = null;
-  let sessionSnapUnsub = null;
-
-  // ICE config (add TURN if you have one)
-  const RTC_CONFIG = {
-    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-  };
-
-  // small helper for codes
-  function makeCode(len=6){
-    const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-    let out = '';
-    for(let i=0;i<len;i++) out += chars[Math.floor(Math.random()*chars.length)];
-    return out;
-  }
-
-  // ---------- SENDER ----------
-  startShare.addEventListener('click', async () => {
-    startShare.disabled = true;
-    sStatus.style.display = 'block';
-    sStatus.textContent = 'Starting — allow camera/mic when requested by browser...';
-
-    try {
-      localStream = await navigator.mediaDevices.getUserMedia({
-        video: svideo.checked,
-        audio: saudio.checked
-      });
-      localVideo.srcObject = localStream;
-    } catch (err) {
-      alert('Camera/Mic access denied or not available: ' + err);
-      startShare.disabled = false;
-      sStatus.style.display = 'none';
-      return;
-    }
-
-    pc = new RTCPeerConnection(RTC_CONFIG);
-    // add local tracks
-    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
-
-    // create session doc
-    const code = makeCode(6);
-    sessionCodeEl.textContent = code;
-    sessionRef = db.collection('sessions').doc(code);
-
-    const senderCandidates = sessionRef.collection('senderCandidates');
-    const receiverCandidates = sessionRef.collection('receiverCandidates');
-
-    // push local ICE
-    pc.onicecandidate = e => {
-      if(e.candidate) senderCandidates.add(e.candidate.toJSON()).catch(console.warn);
-    };
-
-    // handle remote track(s) (sender usually won't show remote)
-    pc.ontrack = e => {
-      console.log('sender got remote track', e.streams);
-    };
-
-    // create offer and save to Firestore
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    const offerData = { type: offer.type, sdp: offer.sdp, createdAt: firebase.firestore.FieldValue.serverTimestamp() };
-    await sessionRef.set({ offer: offerData, status:'waiting' }, { merge: true });
-
-    // subscribe receiverCandidates -> add to pc
-    receiverCandidatesUnsub = receiverCandidates.onSnapshot(snapshot => {
-      snapshot.docChanges().forEach(change => {
-        if(change.type === 'added'){
-          const cand = change.doc.data();
-          pc.addIceCandidate(new RTCIceCandidate(cand)).catch(e => console.warn('pc.addIceCandidate failed', e));
+    // Wait for answer
+    onSnapshot(callRef, async snap => {
+        const data = snap.data();
+        if (data?.answer && !pcSend.currentRemoteDescription) {
+            await pcSend.setRemoteDescription(new RTCSessionDescription(data.answer));
         }
-      });
     });
+}
 
-    // subscribe session doc for answer
-    sessionSnapUnsub = sessionRef.onSnapshot(async snap => {
-      const data = snap.data();
-      if(!data) return;
-      // if answer present and not yet applied
-      if(data.answer && data.answer.sdp && pc && !pc.currentRemoteDescription){
-        try{
-          const ans = data.answer;
-          await pc.setRemoteDescription(new RTCSessionDescription({ type: ans.type, sdp: ans.sdp }));
-          sStatus.textContent = 'Viewer connected — streaming.';
-        }catch(e){
-          console.error('apply answer error', e);
-          sStatus.textContent = 'Error applying answer: ' + e;
+/* --------------------------
+       RECEIVER CONNECT
+--------------------------- */
+async function receiverConnect() {
+
+    const code = document.getElementById("recvCode").value;
+    const callRef = doc(db, "calls", code);
+
+    // Receive offer → send answer
+    onSnapshot(callRef, async snap => {
+        const data = snap.data();
+
+        if (data?.offer && !pcRecv.currentRemoteDescription) {
+
+            await pcRecv.setRemoteDescription(new RTCSessionDescription(data.offer));
+
+            const answer = await pcRecv.createAnswer();
+            await pcRecv.setLocalDescription(answer);
+
+            await updateDoc(callRef, { answer });
         }
-      }
-      if(data.status) {
-        // reflect status if needed
-        // e.g., data.status === 'answered' etc.
-      }
     });
+}
 
-    sStatus.textContent = 'Session ready. Code: ' + code;
-    stopShare.style.display = 'inline-block';
-  });
+</script>
 
-  stopShare.addEventListener('click', async () => {
-    await endSession(true);
-  });
-
-  // ---------- RECEIVER ----------
-  connectBtn.addEventListener('click', async () => {
-    const code = (codeInput.value || '').trim().toUpperCase();
-    if(!code){ alert('Enter a session code'); return; }
-    connectBtn.disabled = true;
-    rStatus.style.display = 'block';
-    rStatus.textContent = 'Connecting...';
-
-    try {
-      sessionRef = db.collection('sessions').doc(code);
-      const snap = await sessionRef.get();
-      if(!snap.exists){ alert('Session not found'); connectBtn.disabled = false; rStatus.style.display='none'; sessionRef = null; return; }
-
-      const data = snap.data();
-      if(!data || !data.offer){ alert('Sender has not created an offer yet'); connectBtn.disabled=false; rStatus.style.display='none'; sessionRef=null; return; }
-
-      pc = new RTCPeerConnection(RTC_CONFIG);
-
-      // when remote stream arrives
-      pc.ontrack = e => {
-        remoteVideo.srcObject = e.streams[0];
-        rStatus.textContent = 'Streaming.';
-      };
-
-      const receiverCandidates = sessionRef.collection('receiverCandidates');
-      const senderCandidates = sessionRef.collection('senderCandidates');
-
-      // send local ICE (even if not sending media)
-      pc.onicecandidate = e => {
-        if(e.candidate) receiverCandidates.add(e.candidate.toJSON()).catch(console.warn);
-      };
-
-      // listen for sender's ICE candidates
-      senderCandidatesUnsub = senderCandidates.onSnapshot(snapshot => {
-        snapshot.docChanges().forEach(async change => {
-          if(change.type === 'added'){
-            const c = change.doc.data();
-            try { await pc.addIceCandidate(new RTCIceCandidate(c)); }
-            catch(e){ console.warn('addIce candidate error', e); }
-          }
-        });
-      });
-
-      // set remote desc from offer
-      const offer = data.offer;
-      await pc.setRemoteDescription(new RTCSessionDescription({ type: offer.type, sdp: offer.sdp }));
-
-      // create answer & save (merge true so we don't overwrite)
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      const ansData = { type: answer.type, sdp: answer.sdp, createdAt: firebase.firestore.FieldValue.serverTimestamp() };
-      await sessionRef.set({ answer: ansData, status:'answered' }, { merge: true });
-
-      rStatus.textContent = 'Answer sent. Waiting for media...';
-      leaveBtn.style.display = 'inline-block';
-    } catch (err) {
-      console.error(err);
-      alert('Connection failed: ' + err);
-      connectBtn.disabled = false;
-      rStatus.style.display = 'none';
-      sessionRef = null;
-    }
-  });
-
-  leaveBtn.addEventListener('click', async () => {
-    await endSession(false);
-  });
-
-  // cleanup function used by both sides
-  async function endSession(removeDoc=false){
-    try {
-      if(senderCandidatesUnsub){ senderCandidatesUnsub(); senderCandidatesUnsub = null; }
-      if(receiverCandidatesUnsub){ receiverCandidatesUnsub(); receiverCandidatesUnsub = null; }
-      if(sessionSnapUnsub){ sessionSnapUnsub(); sessionSnapUnsub = null; }
-    } catch(e){ console.warn(e); }
-
-    if(pc){
-      try { pc.getSenders().forEach(s => s.track && s.track.stop()); } catch(e){}
-      try { pc.close(); } catch(e){}
-      pc = null;
-    }
-
-    if(localStream){
-      try { localStream.getTracks().forEach(t => t.stop()); } catch(e){}
-      localStream = null;
-      localVideo.srcObject = null;
-    }
-
-    if(remoteVideo) remoteVideo.srcObject = null;
-
-    if(sessionRef && removeDoc){
-      try { await sessionRef.delete(); } catch(e){ console.warn('delete failed', e); }
-    }
-
-    // UI reset
-    startShare.disabled = false;
-    stopShare.style.display = 'none';
-    sessionCodeEl.textContent = '—';
-    sStatus.style.display = 'none';
-
-    connectBtn.disabled = false;
-    leaveBtn.style.display = 'none';
-    rStatus.style.display = 'none';
-
-    sessionRef = null;
-  }
-
-  // optional cleanup on page unload
-  window.addEventListener('beforeunload', async () => { await endSession(false); });
-
-  </script>
 </body>
 </html>
