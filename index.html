@@ -3,14 +3,13 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Camera Connect — Send / Receive</title>
+<title>Camera Connect — Fixed Modal Behavior</title>
 <style>
   :root{
-    --bg:#0b1220; --card:#0f1724; --muted:#9aa3b2; --accent:#00b2ff; --accent2:#7c5cff;
-    --glass: rgba(255,255,255,0.03);
+    --bg:#07101a; --card:#0f1724; --muted:#9aa3b2; --accent:#00b2ff; --accent2:#7c5cff;
   }
   *{box-sizing:border-box}
-  body{margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Arial;background:linear-gradient(180deg,#07101a,#0b1220);color:#e6eef8;min-height:100vh;}
+  body{margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Arial;background:linear-gradient(180deg,#07101a,#0b1220);color:#e6eef8;min-height:100vh}
   .wrap{max-width:980px;margin:18px auto;padding:16px}
   header{display:flex;align-items:center;gap:12px}
   .logo{width:48px;height:48px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-weight:700;color:#031025}
@@ -31,14 +30,17 @@
   .actions{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap}
   footer{margin-top:18px;color:var(--muted);font-size:13px;text-align:center}
 
-  /* modal */
-  .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:9999}
-  .modal{background:#0b1220;padding:18px;border-radius:12px;border:1px solid rgba(255,255,255,0.04);max-width:420px;width:92%}
-  .modal h3{margin:0 0 8px}
+  /* minimal dark modal (Option A) */
+  .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:9999}
+  .modal{background:#0b1220;padding:18px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);max-width:420px;width:92%}
+  .modal h3{margin:0 0 8px;font-size:18px}
   .modal p{color:var(--muted);margin:8px 0 14px}
   .modal .actions{display:flex;gap:8px;justify-content:flex-end}
   .btn-accept{background:#2e7d32;color:white;padding:8px 12px;border-radius:8px;border:0;cursor:pointer}
   .btn-reject{background:#c62828;color:white;padding:8px 12px;border-radius:8px;border:0;cursor:pointer}
+
+  /* helper hidden class */
+  .hidden{display:none !important}
   @media(max-width:820px){ .row{flex-direction:column;align-items:stretch} .logo{width:44px;height:44px} }
 </style>
 </head>
@@ -67,7 +69,7 @@
         <label><input id="optAudio" type="checkbox" checked> Microphone</label>
         <div style="flex:1"></div>
         <button id="shareBtn" class="big">Share</button>
-        <button id="disconnectBtn" class="ghost" style="display:none">Disconnect</button>
+        <button id="disconnectBtn" class="ghost hidden">Disconnect</button>
       </div>
 
       <div style="margin-top:12px">
@@ -80,7 +82,7 @@
         <video id="localVideo" autoplay playsinline muted></video>
       </div>
 
-      <div id="sendStatus" class="status" style="display:none"></div>
+      <div id="sendStatus" class="status hidden"></div>
     </div>
 
     <!-- RECEIVE UI -->
@@ -90,7 +92,7 @@
         <input id="codeInput" type="text" placeholder="Enter session code (e.g. AB12CD)">
         <div style="flex:1"></div>
         <button id="connectBtn" class="big">Connect</button>
-        <button id="leaveBtn" class="ghost" style="display:none">Disconnect</button>
+        <button id="leaveBtn" class="ghost hidden">Disconnect</button>
       </div>
 
       <div style="margin-top:12px">
@@ -98,16 +100,16 @@
         <video id="remoteVideo" autoplay playsinline></video>
       </div>
 
-      <div id="recvStatus" class="status" style="display:none"></div>
+      <div id="recvStatus" class="status hidden"></div>
     </div>
 
-    <footer>Host the page over HTTPS (GitHub Pages ok). Make sure Firestore rules allow reads/writes for testing.</footer>
+    <footer>Host this page over HTTPS (GitHub Pages ok) or test on <code>http://localhost</code>. Make sure Firestore rules allow read/write during testing.</footer>
   </div>
 
-  <!-- Confirmation modal (shown only when clicking Share, NOT automatically) -->
+  <!-- minimal dark confirmation modal - HIDDEN by default -->
   <div id="confirmModal" class="modal-backdrop hidden" aria-hidden="true">
-    <div class="modal">
-      <h3>Share your camera</h3>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <h3 id="modalTitle">Share your camera</h3>
       <p>Do you want to share your camera and/or microphone with anyone who has the session code? You can stop sharing by clicking Disconnect.</p>
       <div class="actions">
         <button id="confirmCancel" class="btn-reject">Cancel</button>
@@ -160,7 +162,7 @@
   const confirmOk = document.getElementById('confirmOk');
   const confirmCancel = document.getElementById('confirmCancel');
 
-  // internal state
+  // state
   let localStream = null;
   let pc = null;
   let sessionRef = null;
@@ -168,49 +170,41 @@
   let receiverCandidatesUnsub = null;
   let sessionSnapUnsub = null;
 
-  // ICE / STUN config (add TURN if you have one)
   const rtcConfig = {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' }
-      // add TURN credentials here if needed:
-      // { urls: 'turn:turn.example.com:3478', username:'user', credential:'pass' }
-    ]
+    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
   };
 
-  // helpers
   function show(el){ el.classList.remove('hidden'); el.removeAttribute('aria-hidden'); }
   function hide(el){ el.classList.add('hidden'); el.setAttribute('aria-hidden','true'); }
 
   function makeCode(len=6){
-    const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-    let s=''; for(let i=0;i<len;i++) s+=chars[Math.floor(Math.random()*chars.length)];
+    const ch = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    let s=''; for(let i=0;i<len;i++) s += ch[Math.floor(Math.random()*ch.length)];
     return s;
   }
 
-  // initial mode buttons
-  chooseSend.addEventListener('click', () => {
-    show(sendPanel); hide(recvPanel);
-  });
-  chooseRecv.addEventListener('click', () => {
-    show(recvPanel); hide(sendPanel);
-  });
+  // initial mode
+  chooseSend.addEventListener('click', () => { show(sendPanel); hide(recvPanel); });
+  chooseRecv.addEventListener('click', () => { show(recvPanel); hide(sendPanel); });
 
-  // SHOW modal when user clicks Share (confirmation BEFORE starting camera/offer)
+  // show modal ONLY when Share clicked
   shareBtn.addEventListener('click', () => {
+    // modal appears only on explicit Share click
     show(confirmModal);
   });
+
   confirmCancel.addEventListener('click', () => hide(confirmModal));
 
-  // when Confirm Share clicked -> start sharing & create session
   confirmOk.addEventListener('click', async () => {
     hide(confirmModal);
     await startSharing();
   });
 
+  // START SHARING (runs only after user confirmed)
   async function startSharing(){
     shareBtn.disabled = true;
-    sendStatus.style.display = 'block';
-    sendStatus.textContent = 'Starting… allow camera/mic when prompted by the browser.';
+    sendStatus.textContent = 'Starting — allow camera/mic when prompted.';
+    show(sendStatus);
 
     const useVideo = optVideo.checked;
     const useAudio = optAudio.checked;
@@ -221,59 +215,44 @@
     } catch (err) {
       alert('Could not access camera/microphone: ' + err);
       shareBtn.disabled = false;
-      sendStatus.style.display = 'none';
+      hide(sendStatus);
       return;
     }
 
-    // create RTCPeerConnection
     pc = new RTCPeerConnection(rtcConfig);
+    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
 
-    // add local tracks
-    localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-
-    // create Firestore session doc with short code
+    // create doc
     const code = makeCode(6);
     sessionCodeEl.textContent = code;
     sessionRef = db.collection('sessions').doc(code);
 
-    // subcollections
     const senderCandidates = sessionRef.collection('senderCandidates');
     const receiverCandidates = sessionRef.collection('receiverCandidates');
 
-    // push local ICE to senderCandidates subcollection
     pc.onicecandidate = event => {
-      if (event.candidate) {
-        senderCandidates.add(event.candidate.toJSON()).catch(console.warn);
-      }
+      if (event.candidate) senderCandidates.add(event.candidate.toJSON()).catch(console.warn);
     };
 
-    // optional logging for tracks
-    pc.ontrack = e => { console.log('remote track (sender) ', e.streams); };
+    pc.ontrack = e => { console.log('sender got remote track', e.streams); };
 
-    // create offer and save it
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
 
-    const offerData = {
-      type: offer.type,
-      sdp: offer.sdp,
-      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-      status: 'waiting'
-    };
+    const offerData = { type: offer.type, sdp: offer.sdp, createdAt: firebase.firestore.FieldValue.serverTimestamp(), status:'waiting' };
+    await sessionRef.set({ offer: offerData, status:'waiting' }, { merge: true });
 
-    await sessionRef.set({ offer: offerData, status: 'waiting' }, { merge: true });
-
-    // listen for incoming receiverCandidates and add to pc
+    // listen for receiverCandidates
     receiverCandidatesUnsub = receiverCandidates.onSnapshot(snapshot => {
       snapshot.docChanges().forEach(change => {
         if (change.type === 'added') {
           const cand = change.doc.data();
-          pc.addIceCandidate(new RTCIceCandidate(cand)).catch(e => console.warn('pc.addIceCandidate failed', e));
+          pc.addIceCandidate(new RTCIceCandidate(cand)).catch(e => console.warn('addIceCandidate failed', e));
         }
       });
     });
 
-    // listen for answer in the session doc
+    // listen for answer
     sessionSnapUnsub = sessionRef.onSnapshot(async snap => {
       const data = snap.data();
       if (!data) return;
@@ -287,36 +266,54 @@
           sendStatus.textContent = 'Error applying answer: ' + err;
         }
       }
-      // reflect status if updated by receiver
-      if (data.status) {
-        // for future use
-      }
     });
 
-    // UI changes
-    disconnectBtn.style.display = 'inline-block';
+    // UI
+    disconnectBtn.classList.remove('hidden');
     sendStatus.textContent = 'Session ready. Code: ' + code;
   }
 
-  // Disconnect (sender chooses to end session and delete doc)
+  // disconnect sender & optionally delete doc
   disconnectBtn.addEventListener('click', async () => {
     await stopSharing(true);
   });
 
-  // start receiver connect flow
+  async function stopSharing(deleteDoc=false){
+    try {
+      if (receiverCandidatesUnsub) { receiverCandidatesUnsub(); receiverCandidatesUnsub = null; }
+      if (senderCandidatesUnsub) { senderCandidatesUnsub(); senderCandidatesUnsub = null; }
+      if (sessionSnapUnsub) { sessionSnapUnsub(); sessionSnapUnsub = null; }
+    } catch(e){ console.warn(e); }
+
+    if (pc) { try { pc.getSenders().forEach(s => s.track && s.track.stop()); } catch(e){} try{ pc.close(); } catch(e){} pc = null; }
+    if (localStream) { try { localStream.getTracks().forEach(t => t.stop()); } catch(e){} localStream = null; localVideo.srcObject = null; }
+
+    if (sessionRef && deleteDoc) {
+      try { await sessionRef.delete(); } catch(e){ console.warn('delete failed', e); }
+    }
+
+    // reset UI
+    shareBtn.disabled = false;
+    disconnectBtn.classList.add('hidden');
+    sessionCodeEl.textContent = '—';
+    hide(sendStatus);
+    sessionRef = null;
+  }
+
+  // RECEIVER connect
   connectBtn.addEventListener('click', async () => {
     const code = (codeInput.value || '').trim().toUpperCase();
     if (!code) { alert('Enter session code'); return; }
     connectBtn.disabled = true;
-    recvStatus.style.display = 'block';
     recvStatus.textContent = 'Connecting…';
+    show(recvStatus);
 
     try {
       sessionRef = db.collection('sessions').doc(code);
       const snap = await sessionRef.get();
       if (!snap.exists) {
         alert('Session not found: ' + code);
-        recvStatus.style.display = 'none';
+        hide(recvStatus);
         connectBtn.disabled = false;
         sessionRef = null;
         return;
@@ -325,111 +322,63 @@
       const data = snap.data();
       if (!data.offer) {
         alert('Sender has not created an offer yet.');
-        recvStatus.style.display = 'none';
+        hide(recvStatus);
         connectBtn.disabled = false;
         sessionRef = null;
         return;
       }
 
-      // create RTCPeerConnection
       pc = new RTCPeerConnection(rtcConfig);
 
-      // when remote track arrives
       pc.ontrack = event => {
         remoteVideo.srcObject = event.streams[0];
         recvStatus.textContent = 'Streaming.';
       };
 
-      // subcollections
       const receiverCandidates = sessionRef.collection('receiverCandidates');
       const senderCandidates = sessionRef.collection('senderCandidates');
 
-      // send our ICE candidates to receiverCandidates
       pc.onicecandidate = event => {
-        if (event.candidate) {
-          receiverCandidates.add(event.candidate.toJSON()).catch(console.warn);
-        }
+        if (event.candidate) receiverCandidates.add(event.candidate.toJSON()).catch(console.warn);
       };
 
-      // listen for sender's ICE candidates
+      // subscribe to sender candidates
       senderCandidatesUnsub = senderCandidates.onSnapshot(snapshot => {
         snapshot.docChanges().forEach(async change => {
           if (change.type === 'added') {
             const cand = change.doc.data();
-            try {
-              await pc.addIceCandidate(new RTCIceCandidate(cand));
-            } catch (e) {
-              console.warn('Receiver addIceCandidate failed', e);
-            }
+            try { await pc.addIceCandidate(new RTCIceCandidate(cand)); } catch(e){ console.warn('addIce failed', e); }
           }
         });
       });
 
-      // set remote description from sender's offer
+      // set remote description from offer
       const offer = data.offer;
       await pc.setRemoteDescription(new RTCSessionDescription({ type: offer.type, sdp: offer.sdp }));
 
-      // create answer and save to session doc (merge so we don't overwrite)
+      // create answer and save
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
 
-      const answerData = {
-        type: answer.type,
-        sdp: answer.sdp,
-        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-      };
-
+      const answerData = { type: answer.type, sdp: answer.sdp, createdAt: firebase.firestore.FieldValue.serverTimestamp() };
       await sessionRef.set({ answer: answerData, status: 'answered' }, { merge: true });
 
       recvStatus.textContent = 'Answer sent. Waiting for media...';
-      leaveBtn.style.display = 'inline-block';
+      leaveBtn.classList.remove('hidden');
 
     } catch (err) {
       console.error('Error connecting to session', err);
       alert('Error connecting: ' + err);
-      recvStatus.style.display = 'none';
+      hide(recvStatus);
       connectBtn.disabled = false;
       sessionRef = null;
     }
   });
 
-  // leave / disconnect for receiver (does not delete session doc)
+  // receiver disconnect
   leaveBtn.addEventListener('click', async () => {
     await stopReceiving();
   });
-
-  // stop sharing (sender) optionally delete doc
-  async function stopSharing(deleteDoc=false){
-    try {
-      if (receiverCandidatesUnsub) { receiverCandidatesUnsub(); receiverCandidatesUnsub = null; }
-      if (senderCandidatesUnsub) { senderCandidatesUnsub(); senderCandidatesUnsub = null; }
-      if (sessionSnapUnsub) { sessionSnapUnsub(); sessionSnapUnsub = null; }
-    } catch(e){ console.warn(e); }
-
-    if (pc) {
-      try { pc.getSenders().forEach(s => s.track && s.track.stop()); } catch(e){}
-      try { pc.close(); } catch(e){}
-      pc = null;
-    }
-
-    if (localStream) {
-      try { localStream.getTracks().forEach(t => t.stop()); } catch(e){}
-      localStream = null;
-      localVideo.srcObject = null;
-    }
-
-    if (deleteDoc && sessionRef) {
-      try { await sessionRef.delete(); } catch(e){ console.warn('delete failed', e); }
-    }
-
-    // reset UI
-    shareBtn.disabled = false;
-    disconnectBtn.style.display = 'none';
-    sessionCodeEl.textContent = '—';
-    sendStatus.style.display = 'none';
-    sendStatus.textContent = '';
-    sessionRef = null;
-  }
 
   async function stopReceiving(){
     try {
@@ -437,30 +386,29 @@
       if (receiverCandidatesUnsub) { receiverCandidatesUnsub(); receiverCandidatesUnsub = null; }
     } catch(e){ console.warn(e); }
 
-    if (pc) {
-      try { pc.close(); } catch(e){}
-      pc = null;
-    }
+    if (pc) { try { pc.close(); } catch(e){} pc = null; }
     remoteVideo.srcObject = null;
 
-    // reset UI
     connectBtn.disabled = false;
-    leaveBtn.style.display = 'none';
-    recvStatus.style.display = 'none';
-    recvStatus.textContent = '';
+    leaveBtn.classList.add('hidden');
+    hide(recvStatus);
     sessionRef = null;
   }
 
-  // cleanup on page unload — do NOT delete session doc so session remains until manual disconnect
+  // page unload — do not delete session doc automatically (session persists until manual disconnect)
   window.addEventListener('beforeunload', async () => {
-    try {
-      if (pc) { try { pc.close(); } catch(e){} }
-    } catch(e){}
+    try { if (pc) { pc.close(); } } catch(e){}
   });
 
-  // hide helper initially
-  hide(sendPanel); hide(recvPanel); hide(confirmModal);
-  // show index by default (user chooses)
-</script>
+  // ensure modal hidden on start (this fixes the issue you reported)
+  hide(confirmModal);
+  hide(sendPanel);
+  hide(recvPanel);
+  hide(sendStatus);
+  hide(recvStatus);
+  // user must click Send or Receive to reveal panels
+  // share modal appears only after pressing Share
+  // end of script
+  </script>
 </body>
 </html>
