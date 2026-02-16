@@ -3,308 +3,279 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GRN Smart Scanner</title>
+    <title>Fast GRN Batch Scanner</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
     
     <style>
-        body { background-color: #f0f2f5; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { background-color: #f8f9fa; font-family: 'Segoe UI', sans-serif; }
         
-        /* Camera Styling */
-        .camera-wrapper {
+        /* Camera Container */
+        .camera-container {
             position: relative;
-            width: 100%;
-            max-width: 500px;
-            margin: 0 auto;
             background: #000;
-            border-radius: 12px;
+            border-radius: 10px;
             overflow: hidden;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            max-height: 60vh;
         }
         video {
             width: 100%;
-            height: auto;
-            display: block;
-        }
-        /* Overlay to guide user alignment */
-        .scan-overlay {
-            position: absolute;
-            top: 15%;
-            left: 5%;
-            width: 90%;
-            height: 40%;
-            border: 2px dashed #00ff00;
-            background: rgba(0, 255, 0, 0.05);
-            pointer-events: none;
-        }
-        .scan-overlay::after {
-            content: "Align Header Info Here";
-            position: absolute;
-            bottom: -25px;
-            left: 50%;
-            transform: translateX(-50%);
-            color: #00ff00;
-            font-size: 0.8rem;
-            font-weight: bold;
-            text-shadow: 1px 1px 2px black;
+            height: 100%;
+            object-fit: cover;
         }
         
-        #canvas { display: none; } /* Hidden canvas for processing */
-
-        /* Loading Screen */
-        .loader-overlay {
-            display: none;
-            position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(255, 255, 255, 0.95);
-            z-index: 1000;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            text-align: center;
+        /* Overlay Box */
+        .scan-guide {
+            position: absolute;
+            top: 20%; left: 10%; right: 10%; bottom: 40%;
+            border: 2px solid #0d6efd;
+            box-shadow: 0 0 0 100vh rgba(0,0,0,0.5);
+            border-radius: 4px;
+            pointer-events: none;
         }
+        .scan-guide::after {
+            content: "Align Header (GRN/Supplier)";
+            position: absolute;
+            top: -25px; left: 0; width: 100%;
+            text-align: center; color: white;
+            font-size: 0.8rem; font-weight: bold;
+        }
+
+        /* Queue Badge */
+        .queue-badge {
+            position: absolute;
+            top: 10px; right: 10px;
+            background: rgba(220, 53, 69, 0.9);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            display: none;
+        }
+
+        /* Table Styling */
+        .table-processing { background-color: #fff3cd; }
+        .table-success-row { background-color: #d1e7dd; }
     </style>
 </head>
 <body>
 
-<div class="container py-3">
-    <header class="text-center mb-3">
-        <h3 class="fw-bold text-primary">GRN Scanner</h3>
-        <p class="text-muted small">Scan documents to Excel sheet</p>
-    </header>
-
-    <div class="card border-0 shadow-sm mb-3">
-        <div class="card-body p-2">
-            <div class="camera-wrapper">
-                <video id="video" autoplay playsinline></video>
-                <div class="scan-overlay"></div>
+<div class="container-fluid p-0">
+    <div class="sticky-top bg-white shadow-sm pb-2">
+        <div class="camera-container">
+            <video id="video" autoplay playsinline></video>
+            <div class="scan-guide"></div>
+            <div id="queue-indicator" class="queue-badge">Processing: 0</div>
+        </div>
+        
+        <div class="row g-2 p-2">
+            <div class="col-8">
+                <button id="snap-btn" class="btn btn-primary w-100 btn-lg fw-bold">
+                    📸 SNAP & SCAN
+                </button>
             </div>
-            <div class="d-grid gap-2 mt-3">
-                <button id="capture-btn" class="btn btn-primary btn-lg">
-                    SCAN DOCUMENT
+            <div class="col-4">
+                <button onclick="downloadExcel()" id="export-btn" class="btn btn-success w-100 btn-lg" disabled>
+                    📥 Excel
                 </button>
             </div>
         </div>
     </div>
 
-    <div class="card border-0 shadow-sm mb-4" id="edit-section" style="display:none;">
-        <div class="card-header bg-warning text-dark fw-bold">
-            Verify Scanned Data
+    <div class="container mt-3 pb-5">
+        <h6 class="text-muted text-uppercase small fw-bold">Scanned Documents (<span id="total-count">0</span>)</h6>
+        
+        <div class="table-responsive">
+            <table class="table table-bordered table-sm small align-middle" id="results-table">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width: 5%">#</th>
+                        <th style="width: 25%">GRN No</th>
+                        <th style="width: 40%">Supplier</th>
+                        <th style="width: 30%">Invoice</th>
+                    </tr>
+                </thead>
+                <tbody id="table-body">
+                    </tbody>
+            </table>
         </div>
-        <div class="card-body">
-            <form id="scanned-form">
-                <div class="mb-2">
-                    <label class="form-label small fw-bold">GRN Number</label>
-                    <input type="text" class="form-control" id="grnNo">
-                </div>
-                <div class="mb-2">
-                    <label class="form-label small fw-bold">Supplier Name</label>
-                    <input type="text" class="form-control" id="supplierName">
-                </div>
-                <div class="mb-2">
-                    <label class="form-label small fw-bold">GRN Invoice No</label>
-                    <input type="text" class="form-control" id="invoiceNo">
-                </div>
-                
-                <div class="row mt-3">
-                    <div class="col-6">
-                        <button type="button" class="btn btn-outline-secondary w-100" onclick="cancelScan()">Cancel</button>
-                    </div>
-                    <div class="col-6">
-                        <button type="button" class="btn btn-success w-100" onclick="saveToSheet()">Add to Sheet</button>
-                    </div>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <div class="card border-0 shadow-sm">
-        <div class="card-header bg-white d-flex justify-content-between align-items-center">
-            <span class="fw-bold">Scanned List (<span id="count">0</span>)</span>
-            <button class="btn btn-sm btn-dark" id="download-btn" disabled onclick="downloadExcel()">
-                Download Excel
-            </button>
-        </div>
-        <div class="card-body p-0">
-            <div class="table-responsive">
-                <table class="table table-striped mb-0 text-center small" id="data-table">
-                    <thead class="table-light">
-                        <tr>
-                            <th>GRN #</th>
-                            <th>Supplier</th>
-                            <th>Invoice #</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        </tbody>
-                </table>
-            </div>
-            <div id="empty-msg" class="text-center py-4 text-muted small">
-                No documents scanned yet.
-            </div>
+        <div id="empty-state" class="text-center text-muted py-5">
+            Ready to scan. Align document header and tap Snap.
         </div>
     </div>
 </div>
 
-<div class="loader-overlay" id="loader">
-    <div class="spinner-border text-primary mb-3" role="status"></div>
-    <h5 id="status-msg">Scanning...</h5>
-    <p class="small text-muted">Reading text from image. Please wait.</p>
-</div>
-
-<canvas id="canvas"></canvas>
+<canvas id="canvas" style="display:none;"></canvas>
 
 <script>
-    // --- Variables ---
+    // --- Configuration ---
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
-    const captureBtn = document.getElementById('capture-btn');
-    const loader = document.getElementById('loader');
-    const statusMsg = document.getElementById('status-msg');
+    const tableBody = document.getElementById('table-body');
+    const queueIndicator = document.getElementById('queue-indicator');
     
-    // Extracted Fields
-    const fieldGrn = document.getElementById('grnNo');
-    const fieldSupplier = document.getElementById('supplierName');
-    const fieldInvoice = document.getElementById('invoiceNo');
-    
-    let scannedData = []; // Stores our list of GRNs
+    let processingQueue = []; // Holds images waiting for OCR
+    let isWorkerBusy = false;
+    let scanCount = 0;
+    let finalData = []; // Stores the clean JSON for Excel
+    let worker = null; // Tesseract worker instance
 
-    // --- 1. Start Camera ---
-    async function initCamera() {
+    // --- 1. Initialize Camera & OCR Engine ---
+    async function init() {
+        // A. Camera
         try {
-            // Request back camera specifically ('environment')
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 video: { facingMode: 'environment' } 
             });
             video.srcObject = stream;
         } catch (err) {
-            alert("Camera Error: " + err.message + "\n\nNote: If on mobile, this must be served via HTTPS.");
+            alert("Camera Access Denied or Error. Please use HTTPS.");
         }
-    }
-    initCamera();
 
-    // --- 2. Capture & OCR Logic ---
-    captureBtn.addEventListener('click', async () => {
-        // Freeze frame
+        // B. Pre-load Tesseract Worker (Speed Boost)
+        worker = await Tesseract.createWorker('eng');
+        console.log("OCR Engine Ready");
+    }
+    init();
+
+    // --- 2. Snap Button Logic (Fast Capture) ---
+    document.getElementById('snap-btn').addEventListener('click', () => {
+        scanCount++;
+        
+        // 1. Capture Image Frame Instantly
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
         canvas.getContext('2d').drawImage(video, 0, 0);
+        const imgData = canvas.toDataURL('image/png');
+
+        // 2. Add "Processing" Row to Table immediately
+        addPlaceholderRow(scanCount);
         
-        // Show Loading
-        loader.style.display = 'flex';
-        statusMsg.innerText = "Analyzing Document...";
-        
-        try {
-            const image = canvas.toDataURL('image/png');
-            
-            // Run Tesseract (OCR)
-            const result = await Tesseract.recognize(image, 'eng', {
-                logger: m => {
-                    if(m.status === 'recognizing text') {
-                        statusMsg.innerText = `Reading: ${Math.round(m.progress * 100)}%`;
-                    }
-                }
-            });
+        // 3. Add to Queue
+        processingQueue.push({ id: scanCount, image: imgData });
+        updateQueueUI();
 
-            const text = result.data.text;
-            console.log("Raw OCR Text:", text); // Debugging
-
-            extractData(text);
-            
-            // Show Edit Section
-            document.getElementById('edit-section').style.display = 'block';
-            document.getElementById('edit-section').scrollIntoView({behavior: 'smooth'});
-
-        } catch (err) {
-            alert("Scan failed: " + err.message);
-        } finally {
-            loader.style.display = 'none';
-        }
+        // 4. Trigger Processor
+        processQueue();
     });
 
-    // --- 3. Regex Extraction Logic ---
-    function extractData(text) {
-        // Normalize text (remove extra spaces)
-        text = text.replace(/\r\n/g, "\n");
+    // --- 3. Queue Processor (Background Logic) ---
+    async function processQueue() {
+        if (isWorkerBusy || processingQueue.length === 0) return;
 
-        // --- Regex Patterns based on your image ---
-        
-        // 1. GRN No: Looks for "GRN No :" or similar
-        const grnRegex = /GRN\s*(?:No|Number)\s*[:.]?\s*([A-Za-z0-9]+)/i;
-        const grnMatch = text.match(grnRegex);
-        
-        // 2. Invoice No: Looks for "GRN Invoice No :"
-        const invRegex = /GRN\s*Invoice\s*No\s*[:.]?\s*([A-Za-z0-9]+)/i;
-        const invMatch = text.match(invRegex);
+        isWorkerBusy = true;
+        const currentTask = processingQueue.shift(); // Get oldest image
+        updateQueueUI();
 
-        // 3. Supplier: Looks for "Supplier Name :"
-        // This captures everything until the end of the line
-        const supRegex = /Supplier\s*Name\s*[:.]?\s*([^\n]+)/i;
-        const supMatch = text.match(supRegex);
+        try {
+            // Run OCR
+            const ret = await worker.recognize(currentTask.image);
+            const text = ret.data.text;
+            
+            // Extract Data
+            const extracted = parseText(text);
+            
+            // Update Table & Data Array
+            updateRow(currentTask.id, extracted);
+            
+            // Add to final dataset if valid (optional: save even if empty)
+            finalData.push({
+                ID: currentTask.id,
+                ...extracted,
+                RawText: text.replace(/\n/g, " ").substring(0, 50) + "..." // Audit trail
+            });
 
-        // Populate Fields
-        fieldGrn.value = grnMatch ? grnMatch[1].trim() : "";
-        fieldInvoice.value = invMatch ? invMatch[1].trim() : "";
-        fieldSupplier.value = supMatch ? supMatch[1].trim() : "";
-    }
+            document.getElementById('export-btn').disabled = false;
 
-    // --- 4. Table & Sheet Logic ---
-    function saveToSheet() {
-        if(!fieldGrn.value && !fieldSupplier.value) {
-            alert("Please ensure at least one field is filled.");
-            return;
+        } catch (err) {
+            console.error(err);
+            markRowError(currentTask.id);
         }
 
-        const entry = {
-            "GRN Number": fieldGrn.value,
-            "Supplier Name": fieldSupplier.value,
-            "Invoice No": fieldInvoice.value,
-            "Scan Time": new Date().toLocaleString()
+        isWorkerBusy = false;
+        // Recursively call next item
+        processQueue(); 
+    }
+
+    // --- 4. Regex Parsing (tuned for your document) ---
+    function parseText(text) {
+        // Clean text common OCR errors for printed docs
+        text = text.replace(/\|/g, "I").replace(/l/g, "1").replace(/O/g, "0"); 
+        
+        // A. GRN Number (Matches: GRN No : GRN000...)
+        // Pattern: Look for GRN, then optional No, then specific code format
+        const grnMatch = text.match(/GRN\s*(?:No|Number)[\s:.]*([A-Z0-9]{8,})/i);
+        
+        // B. Supplier Name (Matches: Supplier Name : D.N.K...)
+        // Pattern: specific "Supplier Name" keyword -> capture until newline
+        const supMatch = text.match(/Supplier\s*Name[\s:.]*([^\n\r]+)/i);
+        
+        // C. Invoice No (Matches: GRN Invoice No : 3412...)
+        const invMatch = text.match(/Invoice\s*No[\s:.]*([A-Z0-9]+)/i);
+
+        return {
+            grn: grnMatch ? grnMatch[1].trim() : "Not Found",
+            supplier: supMatch ? supMatch[1].replace(/_/g, "").trim() : "Not Found",
+            invoice: invMatch ? invMatch[1].trim() : "Not Found"
         };
-
-        scannedData.push(entry);
-        renderTable();
-        
-        // Reset and hide edit section
-        document.getElementById('scanned-form').reset();
-        document.getElementById('edit-section').style.display = 'none';
     }
 
-    function cancelScan() {
-        document.getElementById('scanned-form').reset();
-        document.getElementById('edit-section').style.display = 'none';
+    // --- 5. UI Helpers ---
+    function addPlaceholderRow(id) {
+        document.getElementById('empty-state').style.display = 'none';
+        document.getElementById('total-count').innerText = scanCount;
+
+        const row = document.createElement('tr');
+        row.id = `row-${id}`;
+        row.className = "table-processing";
+        row.innerHTML = `
+            <td>${id}</td>
+            <td colspan="3" class="text-center text-muted">
+                <div class="spinner-border spinner-border-sm" role="status"></div> Analyzing...
+            </td>
+        `;
+        // Insert at top
+        tableBody.insertBefore(row, tableBody.firstChild);
     }
 
-    function renderTable() {
-        const tbody = document.querySelector('#data-table tbody');
-        tbody.innerHTML = "";
-        
-        scannedData.forEach(row => {
-            const tr = `<tr>
-                <td>${row["GRN Number"]}</td>
-                <td>${row["Supplier Name"]}</td>
-                <td>${row["Invoice No"]}</td>
-            </tr>`;
-            tbody.innerHTML += tr;
-        });
-
-        document.getElementById('count').innerText = scannedData.length;
-        document.getElementById('empty-msg').style.display = scannedData.length ? 'none' : 'block';
-        document.getElementById('download-btn').disabled = scannedData.length === 0;
+    function updateRow(id, data) {
+        const row = document.getElementById(`row-${id}`);
+        if(row) {
+            row.className = ""; // Remove processing class
+            row.innerHTML = `
+                <td>${id}</td>
+                <td class="fw-bold text-primary">${data.grn}</td>
+                <td>${data.supplier}</td>
+                <td>${data.invoice}</td>
+            `;
+        }
     }
 
+    function markRowError(id) {
+        const row = document.getElementById(`row-${id}`);
+        if(row) {
+            row.className = "table-danger";
+            row.innerHTML = `<td>${id}</td><td colspan="3">Scan Failed</td>`;
+        }
+    }
+
+    function updateQueueUI() {
+        if(processingQueue.length > 0) {
+            queueIndicator.style.display = 'block';
+            queueIndicator.innerText = `Processing Queue: ${processingQueue.length}`;
+        } else {
+            queueIndicator.style.display = 'none';
+        }
+    }
+
+    // --- 6. Export ---
     function downloadExcel() {
-        // Create Sheet
-        const ws = XLSX.utils.json_to_sheet(scannedData);
+        const ws = XLSX.utils.json_to_sheet(finalData);
         const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Scanned GRNs");
-
-        // Save File
-        const dateStr = new Date().toISOString().slice(0,10);
-        XLSX.writeFile(wb, `GRN_Export_${dateStr}.xlsx`);
+        XLSX.utils.book_append_sheet(wb, ws, "GRN_Data");
+        XLSX.writeFile(wb, "Batch_Scan_Result.xlsx");
     }
-
 </script>
 
 </body>
